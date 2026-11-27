@@ -1,12 +1,24 @@
-# CD Factu (Windows)
+# CD Factu (Linux)
 
 Programa de facturación sencilla para autónomos y micropymes, con integración de **Verifactu**.
-Esta es la versión para **Windows**.
+Esta es la versión para **Linux** (código fuente + ejecutable AppImage). No requiere Windows ni Wine.
 
-## Requisitos del sistema (Windows)
-- Windows 10 o superior.
-- No requiere instalación de Python (ejecutable incluido en la Release).
-- El programa se ejecuta directamente; la base de datos se crea automáticamente.
+## Requisitos del sistema (Linux)
+- Distribución Linux de 64 bits (probado en Ubuntu 22.04+ y derivados).
+- Para el AppImage: `libfuse2` instalada:
+  ```bash
+  # Debian/Ubuntu
+  sudo apt install libfuse2
+  # Fedora
+  sudo dnf install fuse-libs
+  # Arch
+  sudo pacman -S fuse2
+  ```
+- Para ejecutar desde código fuente: Python 3.10+ y las librerías del sistema que exige PySide6 (libxcb, libxkbcommon, libgl, etc.):
+  ```bash
+  # Debian/Ubuntu
+  sudo apt install python3 python3-pip libxcb-cursor0 libxkbcommon-x11-0 libgl1
+  ```
 
 ## Características principales
 - Interfaz sencilla, botones grandes y tema oscuro.
@@ -16,6 +28,7 @@ Esta es la versión para **Windows**.
 - Anulación/rectificación de facturas (sin borrar).
 - Copia de seguridad y restauración de datos.
 - Funciona sin conexión a internet (datos locales).
+
 
 ## Capturas de pantalla
 
@@ -45,35 +58,41 @@ Esta es la versión para **Windows**.
 
 ## Instalación
 
-### Opción 1: Ejecutable (recomendado, sin instalación)
-1. Descarga `CD-Factu.exe` desde la sección **Releases**.
-2. Ejecútalo con doble clic. Se crea la base de datos automáticamente en `%APPDATA%\CD Factu\`.
+### Opción 1: AppImage (recomendado, sin instalación)
+1. Descarga `CD-Factu-x86_64.AppImage` desde la sección **Releases**.
+2. Dale permisos de ejecución:
+   ```bash
+   chmod +x CD-Factu-x86_64.AppImage
+   ```
+3. Ejecútalo con doble clic o desde la terminal:
+   ```bash
+   ./CD-Factu-x86_64.AppImage
+   ```
 
 ### Opción 2: Desde código fuente
 Requisitos: Python 3.10+ y las dependencias de `requirements.txt` (PySide6, reportlab, qrcode, Pillow).
 
-```bat
-git clone https://github.com/davidcasascompetenciadigital-prog/CD-Factu.git
-cd CD-Factu
+```bash
+git clone https://github.com/davidcasascompetenciadigital-prog/CD-Factu-Linux.git
+cd CD-Factu-Linux
 pip install -r requirements.txt
-python main.py
+python3 main.py
 ```
 
 ### Opción 3: Compilar ejecutable
-```bat
+```bash
 pip install pyinstaller
-build-windows.bat
+bash build-appimage.sh
 ```
-El ejecutable se genera en `dist\CD-Factu.exe`.
 
 ## Uso
-1. Ejecuta el programa (se crea la base de datos automáticamente en `%APPDATA%\CD Factu\`).
+1. Ejecuta el programa (se crea la base de datos automáticamente en `~/.local/share/CD Factu/`).
 2. Rellena "Mis datos de empresa" (con ayuda de tu asesor si es necesario).
 3. Añade clientes y productos.
 4. Emite facturas desde "Emitir factura".
 5. Consulta e imprime en "Facturas emitidas".
 
-Los datos se guardan en `%APPDATA%\CD Factu\` y las copias de seguridad en `%USERPROFILE%\Desktop\Backup_Facturas`.
+Los datos se guardan en `~/.local/share/CD Factu/` y las copias de seguridad en `~/Desktop/Backup_Facturas` (o en `$HOME` si no existe el Escritorio).
 
 ## Verifactu
 Modalidad local: no requiere certificado por parte del usuario final. Configuración opcional de certificado (prueba/real) en "Mis datos de empresa".
