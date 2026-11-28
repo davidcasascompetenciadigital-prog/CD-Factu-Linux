@@ -161,6 +161,17 @@ class TabEmitir(QWidget):
         self.tabla.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         left.addWidget(self.tabla)
 
+        # Retención IRPF
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Retención IRPF (%):"))
+        self.inp_irpf = QLineEdit("0")
+        self.inp_irpf.setMaximumWidth(80)
+        self.inp_irpf.textChanged.connect(lambda t: self.recalcular_resumen())
+        row.addWidget(self.inp_irpf)
+        row.addWidget(QLabel("(0, 7 o 15 habitualmente)"))
+        row.addStretch()
+        left.addLayout(row)
+
         left.addStretch()
 
         # ===== Columna derecha: resumen automático =====
@@ -177,7 +188,13 @@ class TabEmitir(QWidget):
         self.lbl_desglose = QLabel("")
         self.lbl_total = QLabel("Total factura: 0,00 €")
         self.lbl_total.setStyleSheet("font-size:20px; font-weight:bold; color:#4caf50;")
-        for l in (self.lbl_base, self.lbl_iva, self.lbl_desglose, self.lbl_total):
+        self.lbl_irpf = QLabel("Retención IRPF: 0,00 €")
+        self.lbl_irpf.setStyleSheet("font-size:14px; color:#e53935;")
+        self.lbl_irpf.setVisible(False)
+        self.lbl_total_pagar = QLabel("Total a pagar: 0,00 €")
+        self.lbl_total_pagar.setStyleSheet("font-size:20px; font-weight:bold; color:#4caf50;")
+        self.lbl_total_pagar.setVisible(False)
+        for l in (self.lbl_base, self.lbl_iva, self.lbl_desglose, self.lbl_total, self.lbl_irpf, self.lbl_total_pagar):
             l.setAlignment(Qt.AlignmentFlag.AlignRight)
             bv.addWidget(l)
         bv.addStretch()
@@ -248,6 +265,12 @@ class TabEmitir(QWidget):
             r = conn.execute("SELECT * FROM clientes WHERE id=?", (cid,)).fetchone()
             conn.close()
             self.cliente_data = dict(r)
+            # Aviso de recargo de equivalencia por cliente
+            re_cli = bool(r["recargo_equivalencia"]) if "recargo_equivalencia" in r.keys() else False
+            if re_cli:
+                from ..ui.widgets import info
+                info(self, "Este cliente tiene activado el recargo de equivalencia. "
+                           "Se aplicará automáticamente al emitir la factura.")
             # Datos del cliente en el recuadro derecho
             conn2 = get_connection()
             contacts = conn2.execute("SELECT telefono, email FROM contactos_cliente WHERE cliente_id=?", (cid,)).fetchall()
@@ -276,8 +299,11 @@ class TabEmitir(QWidget):
             # fetch nombre properly
             conn = get_connection()
             r = conn.execute("SELECT nombre FROM productos WHERE id=?", (data["id"],)).fetchone()
+            tr = conn.execute("SELECT porcentaje FROM tipos_iva WHERE id=?", (data["iva_id"],)).fetchone()
             conn.close()
             linea.concepto = r["nombre"]
+            pct_iva = tr["porcentaje"] if tr else linea.porcentaje_iva
+            linea.porcentaje_recargo = self._recargo_pct_para_iva(pct_iva)
             linea.recalcular()
             self.lineas.append(linea)
             self.refrescar_tabla()
@@ -313,11 +339,12 @@ class TabEmitir(QWidget):
             return
         iva_id = cmb.currentData()
         conn = get_connection()
-        r = conn.execute("SELECT porcentaje FROM tipos_iva WHERE id=?", (iva_id,)).fetchone()
+        r = conn.execute("SELECT porcentaje, recargo_porcentaje FROM tipos_iva WHERE id=?", (iva_id,)).fetchone()
         conn.close()
         pct = r["porcentaje"] if r else 21.0
+        rec = self._recargo_pct_para_iva(pct)
         linea = LineaFactura(concepto=concepto.strip(), cantidad=1.0, importe_base=base,
-                            porcentaje_iva=pct, tipo_iva_id=iva_id)
+                            porcentaje_iva=pct, porcentaje_recargo=rec, tipo_iva_id=iva_id)
         linea.recalcular()
         self.lineas.append(linea)
         self.refrescar_tabla()
@@ -390,15 +417,52 @@ class TabEmitir(QWidget):
 
     def recalcular_resumen(self):
         f = Factura(lineas=self.lineas)
+        # Recargo de equivalencia
+        for l in f.lineas:
+            l.porcentaje_recargo = self._recargo_pct_para_iva(l.porcentaje_iva)
+        try:
+            f.irpf_porcentaje = float((self.inp_irpf.text() or "0").replace(",", "."))
+        except ValueError:
+            f.irpf_porcentaje = 0.0
         f.recalcular_totales()
         self.lbl_base.setText(f"Base imponible total: {f.base_imponible:.2f} €")
         self.lbl_iva.setText(f"IVA total: {f.total_iva:.2f} €")
         desglose_txt = "  |  ".join(f"IVA {pct:g}%: {cuota:.2f} €" for pct, (b, cuota) in f.desglose_iva.items())
-        # spec: "IVA 21%: 42,00 €"
-        desglose_txt = "  |  ".join(f"IVA {pct:g}%: {cuota:.2f} €" for pct, (b, cuota) in f.desglose_iva.items())
         self.lbl_desglose.setText(desglose_txt)
         self.lbl_total.setText(f"Total factura: {f.total_factura:.2f} €")
+        if f.irpf_porcentaje and f.irpf_porcentaje > 0:
+            self.lbl_irpf.setText(f"Retención IRPF ({f.irpf_porcentaje:g}%): -{f.irpf_importe:.2f} €")
+            self.lbl_total_pagar.setText(f"Total a pagar: {f.total_a_pagar:.2f} €")
+            self.lbl_irpf.setVisible(True)
+            self.lbl_total_pagar.setVisible(True)
+        else:
+            self.lbl_irpf.setVisible(False)
+            self.lbl_total_pagar.setVisible(False)
         self._totales_cache = f
+
+    def _recargo_activo(self):
+        # Recargo si está activo en empresa o en el cliente seleccionado
+        try:
+            conn = get_connection()
+            r = conn.execute("SELECT recargo_equivalencia_enabled FROM empresa WHERE id=1").fetchone()
+            conn.close()
+            emp_re = bool(r["recargo_equivalencia_enabled"]) if r and "recargo_equivalencia_enabled" in r.keys() else False
+        except Exception:
+            emp_re = False
+        cli_re = False
+        if self.cliente_data:
+            cli_re = bool(self.cliente_data.get("recargo_equivalencia"))
+        return emp_re or cli_re
+
+    def _recargo_pct_para_iva(self, pct):
+        if not self._recargo_activo():
+            return 0.0
+        mapa = {21: 5.2, 10: 1.4, 4: 0.5, 0: 0.0}
+        # buscar el más cercano
+        for k, v in mapa.items():
+            if abs(k - pct) < 0.01:
+                return v
+        return 0.0
 
     def emitir(self):
         if self.cliente_id is None:
@@ -416,6 +480,13 @@ class TabEmitir(QWidget):
                               producto_id=l.producto_id, tipo_iva_id=l.tipo_iva_id)
             nl.recalcular()
             f.lineas.append(nl)
+        # Recargo de equivalencia
+        for l in f.lineas:
+            l.porcentaje_recargo = self._recargo_pct_para_iva(l.porcentaje_iva)
+        try:
+            f.irpf_porcentaje = float((self.inp_irpf.text() or "0").replace(",", "."))
+        except ValueError:
+            f.irpf_porcentaje = 0.0
         f.recalcular_totales()
         # cliente nombre para confirmación
         nombre_cliente = self.cliente_data.get("empresa") or f"{self.cliente_data['nombre']} {self.cliente_data.get('apellidos') or ''}".strip()
@@ -441,19 +512,23 @@ class TabEmitir(QWidget):
 
         # insert factura
         cur = conn.execute("""INSERT INTO facturas (numero, fecha_emision, cliente_id, base_imponible, total_iva,
-                              total_factura, estado, estado_cobro, pendiente, hash_registro, hash_anterior)
-                              VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                              total_factura, estado, estado_cobro, pendiente, hash_registro, hash_anterior,
+                              irpf_porcentaje, irpf_importe, total_a_pagar, recargo_importe)
+                              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                            (numero, date.today().isoformat(), self.cliente_id, f.base_imponible,
                             f.total_iva, f.total_factura, "emitida", "no_cobrada", f.total_factura,
-                            hash_reg, hash_anterior))
+                            hash_reg, hash_anterior, f.irpf_porcentaje, f.irpf_importe, f.total_a_pagar,
+                            f.recargo_importe))
         factura_id = cur.lastrowid
         # lineas
         for i, l in enumerate(f.lineas):
             conn.execute("""INSERT INTO lineas_factura (factura_id, orden, producto_id, concepto, cantidad,
-                            importe_base, tipo_iva_id, porcentaje_iva, base_linea, iva_linea, total_linea)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                            importe_base, tipo_iva_id, porcentaje_iva, porcentaje_recargo, base_linea, iva_linea,
+                            recargo_linea, total_linea)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                          (factura_id, i, l.producto_id, l.concepto, l.cantidad, l.importe_base,
-                          l.tipo_iva_id, l.porcentaje_iva, l.base_linea, l.iva_linea, l.total_linea))
+                          l.tipo_iva_id, l.porcentaje_iva, l.porcentaje_recargo, l.base_linea, l.iva_linea,
+                          l.recargo_linea, l.total_linea))
         # desglose
         for pct, (base, cuota) in f.desglose_iva.items():
             # tipo_iva_id lookup
@@ -557,6 +632,7 @@ class TabEmitir(QWidget):
         self.recalcular_resumen()
         self.cmb_cobro.setCurrentText("No cobrada")
         self.pago_frame.setVisible(False)
+        self.inp_irpf.setText("0")
         # refrescar otras pestañas
         try:
             self.parent.tab_facturas.refrescar()

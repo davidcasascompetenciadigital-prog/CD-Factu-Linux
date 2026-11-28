@@ -80,6 +80,17 @@ class VisorFacturaDialog(QDialog):
         v.addWidget(QLabel(f"<b>Base imponible total: {f.base_imponible:.2f} €</b>"))
         v.addWidget(QLabel(f"<b>Total descuento: {total_desc:.2f} €</b>"))
         v.addWidget(QLabel(f"<b>Total factura: {f.total_factura:.2f} €</b>"))
+        rec_imp = getattr(f, "recargo_importe", 0.0) or 0.0
+        if rec_imp and rec_imp > 0:
+            v.addWidget(QLabel(f"Recargo de equivalencia: {rec_imp:.2f} €"))
+        irpf_pct = getattr(f, "irpf_porcentaje", 0.0) or 0.0
+        irpf_imp = getattr(f, "irpf_importe", 0.0) or 0.0
+        if irpf_pct and irpf_pct > 0:
+            v.addWidget(QLabel(f"Retención IRPF ({irpf_pct:g}%): -{irpf_imp:.2f} €"))
+            tp = getattr(f, "total_a_pagar", None)
+            if tp is None:
+                tp = f.total_factura - irpf_imp
+            v.addWidget(QLabel(f"<b>Total a pagar: {tp:.2f} €</b>"))
 
         # Cobros
         v.addWidget(QLabel("<b>Cobros:</b>"))
@@ -253,13 +264,20 @@ class TabFacturas(QWidget):
         f.lineas = []
         for l in lineas:
             nl = LineaFactura(concepto=l["concepto"], cantidad=l["cantidad"], importe_base=l["importe_base"],
-                              porcentaje_iva=l["porcentaje_iva"], producto_id=l["producto_id"],
-                              tipo_iva_id=l["tipo_iva_id"])
-            nl.base_linea = l["base_linea"]; nl.iva_linea = l["iva_linea"]; nl.total_linea = l["total_linea"]
+                              porcentaje_iva=l["porcentaje_iva"],
+                              porcentaje_recargo=(l["porcentaje_recargo"] if "porcentaje_recargo" in l.keys() else 0.0),
+                              producto_id=l["producto_id"], tipo_iva_id=l["tipo_iva_id"])
+            nl.base_linea = l["base_linea"]; nl.iva_linea = l["iva_linea"]
+            nl.recargo_linea = (l["recargo_linea"] if "recargo_linea" in l.keys() else 0.0)
+            nl.total_linea = l["total_linea"]
             f.lineas.append(nl)
         f.desglose_iva = {d["porcentaje"]: (d["base"], d["cuota"]) for d in desglose}
         f.estado_cobro = fr["estado_cobro"]
         f.pendiente = fr["pendiente"]
+        f.irpf_porcentaje = fr["irpf_porcentaje"] if "irpf_porcentaje" in fr.keys() else 0.0
+        f.irpf_importe = fr["irpf_importe"] if "irpf_importe" in fr.keys() else 0.0
+        f.recargo_importe = fr["recargo_importe"] if "recargo_importe" in fr.keys() else 0.0
+        f.total_a_pagar = fr["total_a_pagar"] if "total_a_pagar" in fr.keys() else f.total_factura - f.irpf_importe
         f.cobros = [{"fecha": c["fecha_cobro"], "importe": c["importe"], "forma_pago": c["forma_pago"]} for c in cobros]
 
         class C: pass

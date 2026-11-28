@@ -137,6 +137,10 @@ class TabEmpresa(QWidget):
         self.inp_iva = QLineEdit("21,10,4,0")
         right.addLayout(self._wrap(self.inp_iva))
 
+        # Recargo de equivalencia
+        self.chk_recargo = QCheckBox("Activar recargo de equivalencia (comercio minorista)")
+        right.addWidget(self.chk_recargo)
+
         # Registro Mercantil
         row = QHBoxLayout()
         row.addWidget(QLabel("Registro Mercantil:"))
@@ -329,6 +333,8 @@ class TabEmpresa(QWidget):
         ivas = conn.execute("SELECT porcentaje FROM tipos_iva WHERE activo=1 ORDER BY orden").fetchall()
         if ivas:
             self.inp_iva.setText(",".join(str(int(x["porcentaje"])) for x in ivas))
+        # Recargo de equivalencia
+        self.chk_recargo.setChecked(bool(r["recargo_equivalencia_enabled"]) if "recargo_equivalencia_enabled" in r.keys() else False)
         # Verifactu
         self.chk_verifactu.setChecked(bool(r["verifactu_enabled"]) if "verifactu_enabled" in r.keys() else False)
         mode = r["verifactu_mode"] if "verifactu_mode" in r.keys() else "prueba"
@@ -357,7 +363,8 @@ class TabEmpresa(QWidget):
         conn.execute("""UPDATE empresa SET nombre=?, nif=?, direccion=?, cp=?, ciudad=?,
                         comunidad_autonoma=?, pais=?, logo_path=?, verifactu_enabled=?, verifactu_mode=?,
                         verifactu_cert_path=?, verifactu_key_path=?, verifactu_cert_password=?,
-                        registro_mercantil=?, notas=?, actualizado_en=datetime('now','localtime') WHERE id=1""",
+                        registro_mercantil=?, notas=?, recargo_equivalencia_enabled=?,
+                        actualizado_en=datetime('now','localtime') WHERE id=1""",
                     (self.inp_nombre.text().strip(), self.inp_nif.text().strip(),
                      self.inp_dir.text().strip(), self.inp_cp.text().strip(),
                      self.inp_ciudad.text().strip(), self.cmb_ccaa.currentText(),
@@ -365,7 +372,15 @@ class TabEmpresa(QWidget):
                      1 if self.chk_verifactu.isChecked() else 0, mode,
                      self.inp_vf_cert.text().strip(), self.inp_vf_key.text().strip(),
                      self.inp_vf_pass.text(), self.inp_registro.text().strip(),
-                     self.inp_notas.toPlainText().strip()))
+                     self.inp_notas.toPlainText().strip(),
+                     1 if self.chk_recargo.isChecked() else 0))
+        # Actualizar recargo_porcentaje en tipos_iva según activación
+        recargo_map = {21: 5.2, 10: 1.4, 4: 0.5, 0: 0.0}
+        if self.chk_recargo.isChecked():
+            for pct, rec in recargo_map.items():
+                conn.execute("UPDATE tipos_iva SET recargo_porcentaje=? WHERE porcentaje=?", (rec, pct))
+        else:
+            conn.execute("UPDATE tipos_iva SET recargo_porcentaje=0")
         # Reconfigurar tipos de IVA
         conn.execute("UPDATE tipos_iva SET activo=0")
         orden = 1

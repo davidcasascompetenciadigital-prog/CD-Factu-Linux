@@ -65,6 +65,17 @@ def _bloque_factura(story, factura, empresa, cliente, lineas, desglose, qr_path,
     story.append(Paragraph(f"<b>Base imponible total: {factura.base_imponible:.2f} €</b>", normal))
     story.append(Paragraph(f"<b>Total descuento: {total_descuento:.2f} €</b>", normal))
     story.append(Paragraph(f"<b>Total factura: {factura.total_factura:.2f} €</b>", title))
+    rec_imp = getattr(factura, "recargo_importe", 0.0) or 0.0
+    if rec_imp and rec_imp > 0:
+        story.append(Paragraph(f"Recargo de equivalencia: {rec_imp:.2f} €", normal))
+    irpf_pct = getattr(factura, "irpf_porcentaje", 0.0) or 0.0
+    irpf_imp = getattr(factura, "irpf_importe", 0.0) or 0.0
+    if irpf_pct and irpf_pct > 0:
+        story.append(Paragraph(f"Retención IRPF ({irpf_pct:g}%): -{irpf_imp:.2f} €", normal))
+        total_pagar = getattr(factura, "total_a_pagar", None)
+        if total_pagar is None:
+            total_pagar = factura.total_factura - irpf_imp
+        story.append(Paragraph(f"<b>Total a pagar: {total_pagar:.2f} €</b>", title))
 
     # Cobros
     story.append(Spacer(1, 6*mm))

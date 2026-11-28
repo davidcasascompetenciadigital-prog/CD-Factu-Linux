@@ -1,7 +1,7 @@
 # app/ui/tab_clientes.py
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                                QComboBox, QPushButton, QScrollArea, QFrame, QListWidget,
-                               QListWidgetItem, QMessageBox, QDialog, QFormLayout)
+                               QListWidgetItem, QMessageBox, QDialog, QFormLayout, QCheckBox)
 from PySide6.QtCore import Qt
 from ..db.database import get_connection
 from ..models.cliente import Cliente, Contacto
@@ -50,10 +50,13 @@ class ClienteDialog(QDialog):
         super().__init__(parent)
         self.cliente_id = cliente_id
         self.setWindowTitle("Ficha de cliente" if cliente_id else "Nuevo cliente")
-        self.setMinimumWidth(640)
-        v = QVBoxLayout(self)
-        v.setSpacing(10)
+        self.setMinimumWidth(900)
+        outer = QHBoxLayout(self)
+        outer.setSpacing(16)
 
+        # ===== Columna izquierda: datos del cliente =====
+        left = QVBoxLayout()
+        left.setSpacing(8)
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.setSpacing(8)
@@ -92,29 +95,38 @@ class ClienteDialog(QDialog):
         form.addRow("Comunidad Autónoma:", self.cmb_ccaa)
         form.addRow("País:", self.inp_pais)
         form.addRow("Notas:", self.txt_notas)
-        v.addLayout(form)
+        self.chk_recargo = QCheckBox("Activar recargo de equivalencia para este cliente")
+        form.addRow("Recargo de equivalencia:", self.chk_recargo)
+        left.addLayout(form)
+        left.addStretch()
 
-        # Deuda acumulada
+        # ===== Columna derecha: contactos y botones =====
+        right = QVBoxLayout()
+        right.setSpacing(8)
         self.lbl_deuda = QLabel("Deuda acumulada: 0,00 €")
         self.lbl_deuda.setStyleSheet("font-weight:bold; color:#e53935;")
-        v.addWidget(self.lbl_deuda)
+        right.addWidget(self.lbl_deuda)
 
-        v.addWidget(QLabel("Contactos:"))
+        right.addWidget(QLabel("Contactos:"))
         self.contactos_layout = QVBoxLayout()
-        v.addLayout(self.contactos_layout)
+        right.addLayout(self.contactos_layout)
         btn_add_contacto = big_button("Añadir contacto", "secondary")
         btn_add_contacto.clicked.connect(self.add_contacto)
-        v.addWidget(btn_add_contacto)
+        right.addWidget(btn_add_contacto)
 
+        right.addStretch()
         row = QHBoxLayout()
-        btn_guardar = big_button("GUARDAR CLIENTE", "primary")
+        btn_guardar = big_button("GUARDAR", "primary")
         btn_guardar.clicked.connect(self.guardar)
         row.addWidget(btn_guardar)
         btn_cancelar = big_button("Cancelar", "secondary")
         btn_cancelar.clicked.connect(self.reject)
         row.addWidget(btn_cancelar)
         row.addStretch()
-        v.addLayout(row)
+        right.addLayout(row)
+
+        outer.addLayout(left, 1)
+        outer.addLayout(right, 1)
 
         if cliente_id is not None:
             self.cargar(cliente_id)
@@ -165,6 +177,7 @@ class ClienteDialog(QDialog):
         if idx >= 0: self.cmb_ccaa.setCurrentIndex(idx)
         self.inp_pais.setText(r["pais"] or "España")
         self.txt_notas.setText(r["notas"] or "" if "notas" in r.keys() else "")
+        self.chk_recargo.setChecked(bool(r["recargo_equivalencia"]) if "recargo_equivalencia" in r.keys() else False)
         # deuda acumulada
         try:
             conn2 = get_connection()
@@ -185,21 +198,24 @@ class ClienteDialog(QDialog):
         conn = get_connection()
         if self.cliente_id is None:
             cur = conn.execute("""INSERT INTO clientes (nombre, apellidos, empresa, dni_cif, telefono, telefono_movil,
-                                  email, notas, direccion, cp, ciudad, comunidad_autonoma, pais)
-                                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                  email, notas, direccion, cp, ciudad, comunidad_autonoma, pais,
+                                  recargo_equivalencia)
+                                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                                (self.inp_nombre.text().strip(), self.inp_apell.text().strip(),
                                 self.inp_empresa.text().strip() or None,
                                 self.inp_dni.text().strip(), self.inp_tel.text().strip(),
                                 self.inp_movil.text().strip(), self.inp_email.text().strip(),
                                 self.txt_notas.text().strip(), self.inp_dir.text().strip(),
                                 self.inp_cp.text().strip(), self.inp_ciudad.text().strip(),
-                                self.cmb_ccaa.currentText(), self.inp_pais.text().strip()))
+                                self.cmb_ccaa.currentText(), self.inp_pais.text().strip(),
+                                1 if self.chk_recargo.isChecked() else 0))
             cliente_id = cur.lastrowid
         else:
             cliente_id = self.cliente_id
             conn.execute("""UPDATE clientes SET nombre=?, apellidos=?, empresa=?, dni_cif=?, telefono=?,
                             telefono_movil=?, email=?, notas=?, direccion=?, cp=?, ciudad=?,
-                            comunidad_autonoma=?, pais=?, actualizado_en=datetime('now','localtime')
+                            comunidad_autonoma=?, pais=?, recargo_equivalencia=?,
+                            actualizado_en=datetime('now','localtime')
                             WHERE id=?""",
                          (self.inp_nombre.text().strip(), self.inp_apell.text().strip(),
                           self.inp_empresa.text().strip() or None, self.inp_dni.text().strip(),
@@ -207,7 +223,8 @@ class ClienteDialog(QDialog):
                           self.inp_email.text().strip(), self.txt_notas.text().strip(),
                           self.inp_dir.text().strip(), self.inp_cp.text().strip(),
                           self.inp_ciudad.text().strip(), self.cmb_ccaa.currentText(),
-                          self.inp_pais.text().strip(), cliente_id))
+                          self.inp_pais.text().strip(),
+                          1 if self.chk_recargo.isChecked() else 0, cliente_id))
             conn.execute("DELETE FROM contactos_cliente WHERE cliente_id=?", (cliente_id,))
         for i in range(self.contactos_layout.count()):
             w = self.contactos_layout.itemAt(i).widget()

@@ -48,6 +48,8 @@ def init_db() -> None:
         conn.execute("ALTER TABLE empresa ADD COLUMN registro_mercantil TEXT")
     if "notas" not in cols:
         conn.execute("ALTER TABLE empresa ADD COLUMN notas TEXT")
+    if "recargo_equivalencia_enabled" not in cols:
+        conn.execute("ALTER TABLE empresa ADD COLUMN recargo_equivalencia_enabled INTEGER DEFAULT 0")
     # Migración clientes: teléfono, móvil, email, notas
     ccols = [r["name"] for r in conn.execute("PRAGMA table_info(clientes)").fetchall()]
     if "telefono" not in ccols:
@@ -58,6 +60,30 @@ def init_db() -> None:
         conn.execute("ALTER TABLE clientes ADD COLUMN email TEXT")
     if "notas" not in ccols:
         conn.execute("ALTER TABLE clientes ADD COLUMN notas TEXT")
+    if "recargo_equivalencia" not in ccols:
+        conn.execute("ALTER TABLE clientes ADD COLUMN recargo_equivalencia INTEGER DEFAULT 0")
+    # Migración tipos_iva: recargo de equivalencia
+    tcols = [r["name"] for r in conn.execute("PRAGMA table_info(tipos_iva)").fetchall()]
+    if "recargo_porcentaje" not in tcols:
+        conn.execute("ALTER TABLE tipos_iva ADD COLUMN recargo_porcentaje REAL DEFAULT 0")
+
+    # Migración facturas: retención IRPF
+    fcols = [r["name"] for r in conn.execute("PRAGMA table_info(facturas)").fetchall()]
+    if "irpf_porcentaje" not in fcols:
+        conn.execute("ALTER TABLE facturas ADD COLUMN irpf_porcentaje REAL DEFAULT 0")
+    if "irpf_importe" not in fcols:
+        conn.execute("ALTER TABLE facturas ADD COLUMN irpf_importe REAL DEFAULT 0")
+    if "total_a_pagar" not in fcols:
+        conn.execute("ALTER TABLE facturas ADD COLUMN total_a_pagar REAL")
+    if "recargo_importe" not in fcols:
+        conn.execute("ALTER TABLE facturas ADD COLUMN recargo_importe REAL DEFAULT 0")
+    # Migración lineas_factura: recargo de equivalencia
+    lcols = [r["name"] for r in conn.execute("PRAGMA table_info(lineas_factura)").fetchall()]
+    if "porcentaje_recargo" not in lcols:
+        conn.execute("ALTER TABLE lineas_factura ADD COLUMN porcentaje_recargo REAL DEFAULT 0")
+    if "recargo_linea" not in lcols:
+        conn.execute("ALTER TABLE lineas_factura ADD COLUMN recargo_linea REAL DEFAULT 0")
+
     conn.commit()
     conn.close()
 
